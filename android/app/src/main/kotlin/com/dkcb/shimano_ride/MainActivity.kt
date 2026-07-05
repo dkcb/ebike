@@ -1,0 +1,5 @@
+package com.dkcb.shimano_ride
+
+import io.flutter.embedding.android.FlutterActivity
+
+class MainActivity : FlutterActivity()
