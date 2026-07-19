@@ -28,16 +28,21 @@ class StepsFrame {
     for (final b in bytes) {
       crc ^= b & 0xFF;
       for (var i = 0; i < 8; i++) {
-        crc = crc & 0x80 != 0 ? ((crc << 1) ^ 0x07) & 0xFF : (crc << 1) & 0xFF;
+        crc = (crc & 0x80) != 0 ? ((crc << 1) ^ 0x07) & 0xFF : (crc << 1) & 0xFF;
       }
     }
     return crc;
   }
 
   Uint8List encode() {
-    final header = [address & 0xFF, command & 0xFF, payload.length & 0xFF];
-    final body = [...header, ...payload];
-    return Uint8List.fromList([...body, crc8(body)]);
+    final length = payload.length;
+    final result = Uint8List(4 + length);
+    result[0] = address & 0xFF;
+    result[1] = command & 0xFF;
+    result[2] = length & 0xFF;
+    result.setRange(3, 3 + length, payload);
+    result[3 + length] = crc8(result.sublist(0, 3 + length));
+    return result;
   }
 
   /// Parses a frame, returning `null` on truncation or CRC mismatch.
