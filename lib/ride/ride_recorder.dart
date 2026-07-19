@@ -9,6 +9,7 @@ class RideRecorder {
   final List<TrackPoint> _points = [];
   DateTime? _startedAt;
   bool _recording = false;
+  double _distanceMeters = 0.0;
 
   bool get isRecording => _recording;
   List<TrackPoint> get points => List.unmodifiable(_points);
@@ -18,13 +19,7 @@ class RideRecorder {
       ? Duration.zero
       : _points.last.time.difference(_startedAt!);
 
-  double get distanceKm {
-    var meters = 0.0;
-    for (var i = 1; i < _points.length; i++) {
-      meters += _haversineMeters(_points[i - 1], _points[i]);
-    }
-    return meters / 1000.0;
-  }
+  double get distanceKm => _distanceMeters / 1000.0;
 
   double get averageSpeedKmh {
     final hours = elapsed.inSeconds / 3600.0;
@@ -33,6 +28,7 @@ class RideRecorder {
 
   void start() {
     _points.clear();
+    _distanceMeters = 0.0;
     _startedAt = DateTime.now();
     _recording = true;
   }
@@ -48,7 +44,7 @@ class RideRecorder {
     RideTelemetry? telemetry,
   }) {
     if (!_recording) return;
-    _points.add(TrackPoint(
+    final point = TrackPoint(
       latitude: latitude,
       longitude: longitude,
       time: time ?? DateTime.now(),
@@ -57,7 +53,11 @@ class RideRecorder {
       heartRateBpm: telemetry?.heartRateBpm,
       cadenceRpm: telemetry?.cadenceRpm,
       powerWatts: telemetry?.powerWatts,
-    ));
+    );
+    if (_points.isNotEmpty) {
+      _distanceMeters += _haversineMeters(_points.last, point);
+    }
+    _points.add(point);
   }
 
   /// Exports the recorded ride as a GPX 1.1 document (Strava-importable).

@@ -20,8 +20,11 @@ class RideController extends ChangeNotifier {
       notifyListeners();
     });
     _telemetrySub = _connection.telemetry.listen((snapshot) {
-      latest = latest.merge(snapshot);
-      notifyListeners();
+      final merged = latest.merge(snapshot);
+      if (merged != latest) {
+        latest = merged;
+        notifyListeners();
+      }
     });
   }
 
@@ -50,24 +53,25 @@ class RideController extends ChangeNotifier {
   }
 
   Future<void> startRecording() async {
-    recorder.start();
+    if (recorder.isRecording) return;
     final hasPermission = await _ensureLocationPermission();
-    if (hasPermission) {
-      _gpsSub = Geolocator.getPositionStream(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.bestForNavigation,
-          distanceFilter: 3,
-        ),
-      ).listen((position) {
-        recorder.addFix(
-          latitude: position.latitude,
-          longitude: position.longitude,
-          elevationMeters: position.altitude,
-          telemetry: latest,
-        );
-        notifyListeners();
-      });
-    }
+    if (!hasPermission) return;
+    lastExportedGpx = null;
+    recorder.start();
+    _gpsSub = Geolocator.getPositionStream(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.bestForNavigation,
+        distanceFilter: 3,
+      ),
+    ).listen((position) {
+      recorder.addFix(
+        latitude: position.latitude,
+        longitude: position.longitude,
+        elevationMeters: position.altitude,
+        telemetry: latest,
+      );
+      notifyListeners();
+    });
     notifyListeners();
   }
 

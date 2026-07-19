@@ -78,7 +78,7 @@ class SimulatedBikeConnection implements BikeConnection {
     final decoded = _decoder.decode(frame);
     if (decoded == null) return;
     _telemetryController.add(decoded.merge(RideTelemetry(
-      speedKmh: double.parse(speed.toStringAsFixed(1)),
+      speedKmh: (speed * 10).round() / 10.0,
       cadenceRpm: (70 + 12 * math.sin(_phase * 1.3)).round(),
       heartRateBpm: (120 + 18 * math.sin(_phase * 0.7)).round(),
       timestamp: DateTime.now(),

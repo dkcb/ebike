@@ -25,6 +25,8 @@ class FlutterBlueBikeConnection implements BikeConnection {
   final List<StreamSubscription<dynamic>> _subscriptions = [];
 
   BluetoothDevice? _device;
+  StreamSubscription<dynamic>? _scanSub;
+  bool _connecting = false;
 
   static const _knownServices = {
     BleUuids.cyclingSpeedCadenceService,
@@ -45,7 +47,9 @@ class FlutterBlueBikeConnection implements BikeConnection {
   @override
   Future<void> startScan() async {
     _stateController.add(BikeConnectionState.scanning);
-    _subscriptions.add(FlutterBluePlus.scanResults.listen((results) {
+    _scanController.add([]);
+    await _scanSub?.cancel();
+    _scanSub = FlutterBluePlus.scanResults.listen((results) {
       final bikes = results
           .where((r) => r.device.platformName.isNotEmpty)
           .map((r) => DiscoveredBike(
@@ -56,7 +60,7 @@ class FlutterBlueBikeConnection implements BikeConnection {
           .toList()
         ..sort((a, b) => b.rssi.compareTo(a.rssi));
       _scanController.add(bikes);
-    }));
+    });
     await FlutterBluePlus.startScan(timeout: const Duration(seconds: 15));
   }
 
@@ -65,36 +69,45 @@ class FlutterBlueBikeConnection implements BikeConnection {
 
   @override
   Future<void> connect(String deviceId) async {
+    if (_connecting || _device != null) return;
     await stopScan();
+    _connecting = true;
     _stateController.add(BikeConnectionState.connecting);
-    final device = BluetoothDevice.fromId(deviceId);
-    _device = device;
-    await device.connect(license: License.nonprofit);
-    _stateController.add(BikeConnectionState.connected);
+    try {
+      final device = BluetoothDevice.fromId(deviceId);
+      await device.connect(license: License.nonprofit);
+      _device = device;
+      _stateController.add(BikeConnectionState.connected);
 
-    final services = await device.discoverServices();
-    for (final service in services) {
-      final serviceId = _short(service.uuid);
-      for (final characteristic in service.characteristics) {
-        if (!characteristic.properties.notify &&
-            !characteristic.properties.indicate) {
-          continue;
+      final services = await device.discoverServices();
+      for (final service in services) {
+        final serviceId = _short(service.uuid);
+        for (final characteristic in service.characteristics) {
+          if (!characteristic.properties.notify &&
+              !characteristic.properties.indicate) {
+            continue;
+          }
+          final decoder = _decoderFor(serviceId, _short(characteristic.uuid));
+          if (decoder == null) continue;
+          await characteristic.setNotifyValue(true);
+          _subscriptions.add(characteristic.onValueReceived.listen((data) {
+            final snapshot = decoder(data);
+            if (snapshot != null) _telemetryController.add(snapshot);
+          }));
         }
-        final decoder = _decoderFor(serviceId, _short(characteristic.uuid));
-        if (decoder == null) continue;
-        await characteristic.setNotifyValue(true);
-        _subscriptions.add(characteristic.onValueReceived.listen((data) {
-          final snapshot = decoder(data);
-          if (snapshot != null) _telemetryController.add(snapshot);
-        }));
       }
-    }
 
-    _subscriptions.add(device.connectionState.listen((state) {
-      if (state == BluetoothConnectionState.disconnected) {
-        _stateController.add(BikeConnectionState.disconnected);
-      }
-    }));
+      _subscriptions.add(device.connectionState.listen((state) {
+        if (state == BluetoothConnectionState.disconnected) {
+          _stateController.add(BikeConnectionState.disconnected);
+        }
+      }));
+    } on Exception {
+      _stateController.add(BikeConnectionState.disconnected);
+      rethrow;
+    } finally {
+      _connecting = false;
+    }
   }
 
   RideTelemetry? Function(List<int>)? _decoderFor(
@@ -126,8 +139,11 @@ class FlutterBlueBikeConnection implements BikeConnection {
       await sub.cancel();
     }
     _subscriptions.clear();
+    await _scanSub?.cancel();
+    _scanSub = null;
     await _device?.disconnect();
     _device = null;
+    _connecting = false;
     _stateController.add(BikeConnectionState.disconnected);
   }
 
